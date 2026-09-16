@@ -1,6 +1,28 @@
 import { useState, useEffect } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import {
+  Package,
+  Truck,
+  CheckCircle2,
+  Check,
+  Download,
+  Boxes,
+  Archive,
+  Layers,
+  AlertTriangle,
+  PackageCheck,
+} from 'lucide-react';
 import { salesOrderAPI, inventoryAPI } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import Button from '../components/ui/Button';
+import Badge from '../components/ui/Badge';
+import Modal from '../components/ui/Modal';
+import { Field, Alert } from '../components/ui/Field';
+import EmptyState from '../components/ui/EmptyState';
+import { CardSkeleton } from '../components/ui/Skeleton';
+import { TableWrapper, Td } from '../components/ui/Table';
+import { PageHeader, StatCard } from '../components/ui/Card';
+import { statusTone, availableTone, formatCurrency } from '../lib/status';
 
 export default function SalesOrdersPage() {
   const { user } = useAuth();
@@ -9,6 +31,8 @@ export default function SalesOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [confirmingOrder, setConfirmingOrder] = useState(null);
+  const [confirming, setConfirming] = useState(false);
   const [showDispatchForm, setShowDispatchForm] = useState(null);
   const [dispatchData, setDispatchData] = useState({
     dispatchDate: new Date().toISOString().split('T')[0],
@@ -31,22 +55,25 @@ export default function SalesOrdersPage() {
       setOrders(ordRes.data);
       setInventory(invRes.data);
     } catch (err) {
-      setError('Failed to load data');
+      setError('Failed to load data. Please refresh the page.');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleConfirm = async (orderId) => {
-    if (!window.confirm('Confirm this order? This will reserve inventory.')) return;
-
+  const handleConfirm = async () => {
+    if (!confirmingOrder) return;
+    setConfirming(true);
     try {
       setError('');
-      await salesOrderAPI.confirm(orderId);
-      setSuccess('Order confirmed and inventory reserved!');
+      await salesOrderAPI.confirm(confirmingOrder.id);
+      setSuccess('Order confirmed and inventory reserved.');
+      setConfirmingOrder(null);
       loadData();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to confirm order');
+      setError(err.response?.data?.error || 'Failed to confirm order.');
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -77,208 +104,380 @@ export default function SalesOrdersPage() {
           quantity: parseInt(item.quantity),
         })),
       };
-
       await salesOrderAPI.dispatch(orderId, payload);
-      setSuccess('Order dispatched successfully!');
+      setSuccess('Order dispatched successfully.');
       setShowDispatchForm(null);
       loadData();
     } catch (err) {
-      setError(err.response?.data?.error || 'Failed to dispatch order');
+      setError(err.response?.data?.error || 'Failed to dispatch order.');
     }
   };
 
-  const updateDispatchItem = (index, field, value) => {
+  const updateDispatchItem = (index, field, value) =>
     setDispatchData((prev) => ({
       ...prev,
-      items: prev.items.map((item, i) =>
-        i === index ? { ...item, [field]: value } : item
-      ),
+      items: prev.items.map((item, i) => (i === index ? { ...item, [field]: value } : item)),
     }));
-  };
 
-  const statusClass = (status) => {
-    const map = {
-      PENDING: 'status-new',
-      CONFIRMED: 'status-won',
-      DISPATCHED: 'status-sent',
-      CANCELLED: 'status-lost',
-    };
-    return map[status] || '';
-  };
+  const getInventoryForProduct = (productId) =>
+    inventory.find((inv) => inv.productId === productId);
 
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(amount);
-  };
+  const availability = (qty) =>
+    qty <= 0 ? 'low' : qty < 20 ? 'medium' : 'high';
 
-  const getInventoryForProduct = (productId) => {
-    return inventory.find((inv) => inv.productId === productId);
-  };
-
-  if (loading) return <div className="loading">Loading sales orders...</div>;
+  const kpis = inventory.reduce(
+    (acc, inv) => ({
+      skus: acc.skus + 1,
+      physical: acc.physical + inv.physicalQty,
+      reserved: acc.reserved + inv.reservedQty,
+      available: acc.available + (inv.availableQty || 0),
+    }),
+    { skus: 0, physical: 0, reserved: 0, available: 0 }
+  );
 
   return (
-    <div className="page">
-      <div className="page-header">
-        <h1>Sales Orders</h1>
-      </div>
+    <div className="pb-12">
+      <PageHeader
+        title="Sales Orders"
+        description="Confirm orders, reserve inventory and manage dispatches."
+      />
 
-      {error && <div className="alert alert-error">{error}</div>}
-      {success && <div className="alert alert-success">{success}</div>}
+      <AnimatePresence>
+        {error && (
+          <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mb-4">
+            <Alert tone="error" onDismiss={() => setError('')}>{error}</Alert>
+          </motion.div>
+        )}
+        {success && (
+          <motion.div layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="mb-4">
+            <Alert tone="success" onDismiss={() => setSuccess('')}>{success}</Alert>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Inventory Overview */}
-      <div className="card">
-        <h2>📊 Inventory Overview</h2>
-        <table className="data-table compact">
-          <thead>
-            <tr>
-              <th>Product</th>
-              <th>Code</th>
-              <th>Physical</th>
-              <th>Reserved</th>
-              <th>Available</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inventory.map((inv) => (
-              <tr key={inv.id}>
-                <td>{inv.product?.productName}</td>
-                <td className="mono">{inv.product?.productCode}</td>
-                <td>{inv.physicalQty}</td>
-                <td>{inv.reservedQty}</td>
-                <td className={inv.availableQty <= 0 ? 'text-danger' : inv.availableQty < 20 ? 'text-warning' : 'text-success'}>
-                  <strong>{inv.availableQty}</strong>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {loading ? (
+        <>
+          <CardSkeleton count={4} />
+          <div className="mt-4 card-surface overflow-hidden">
+            <div className="border-b border-zinc-100 px-5 py-4">
+              <p className="text-sm font-semibold text-zinc-900">Orders</p>
+            </div>
+            <div className="animate-pulse space-y-3 p-5">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="h-10 rounded-xl bg-zinc-100" />
+              ))}
+            </div>
+          </div>
+        </>
+      ) : (
+        <>
+          <motion.div layout className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <StatCard label="Products on floor" value={kpis.skus} icon={Boxes} accent="indigo" sub="SKUs tracked" />
+            <StatCard label="Physical stock" value={kpis.physical} icon={Archive} accent="sky" sub="Units in warehouse" />
+            <StatCard label="Reserved" value={kpis.reserved} icon={Layers} accent="amber" sub="Held against orders" />
+            <StatCard label="Available" value={kpis.available} icon={PackageCheck} accent="emerald" sub="Ready to allocate" />
+          </motion.div>
 
-      {/* Orders Table */}
-      <div className="card">
-        <h2>📦 Orders</h2>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Order #</th>
-              <th>Quotation</th>
-              <th>Customer</th>
-              <th>Items & Stock</th>
-              <th>Total</th>
-              <th>Status</th>
-              <th>Dispatches</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {orders.length === 0 ? (
-              <tr><td colSpan="8" className="empty">No sales orders found</td></tr>
-            ) : (
-              orders.map((order) => (
-                <tr key={order.id}>
-                  <td className="mono">{order.orderNumber}</td>
-                  <td className="mono">{order.quotation?.quotationNumber}</td>
-                  <td>{order.customer?.companyName}</td>
-                  <td>
-                    {order.items?.map((item) => {
-                      const inv = getInventoryForProduct(item.productId);
-                      return (
-                        <div key={item.id} className="item-line">
-                          {item.product?.productName} × {item.quantity}
-                          {inv && (
-                            <span className="stock-info">
-                              (avail: <span className={inv.availableQty >= item.quantity ? 'text-success' : 'text-danger'}>
-                                {inv.availableQty}
-                              </span>)
-                            </span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </td>
-                  <td className="mono">{formatCurrency(Number(order.totalAmount))}</td>
-                  <td><span className={`status-badge ${statusClass(order.status)}`}>{order.status}</span></td>
-                  <td>
-                    {order.dispatches?.length > 0 ? (
-                      order.dispatches.map((d) => (
-                        <div key={d.id} className="mono">{d.dispatchNumber}</div>
-                      ))
-                    ) : '—'}
-                  </td>
-                  <td className="actions">
-                    {user.role === 'ADMIN' && (
-                      <>
-                        {order.status === 'PENDING' && (
-                          <button className="btn btn-small btn-success" onClick={() => handleConfirm(order.id)}>
-                            ✓ Confirm
-                          </button>
-                        )}
-                        {order.status === 'CONFIRMED' && (
-                          <button className="btn btn-small btn-primary" onClick={() => openDispatchForm(order)}>
-                            🚚 Dispatch
-                          </button>
-                        )}
-                      </>
-                    )}
+          <div className="mt-4">
+            <TableWrapper
+              columns={[
+                { key: 'product', label: 'Product' },
+                { key: 'code', label: 'Code' },
+                { key: 'physical', label: 'Physical', className: 'text-right' },
+                { key: 'reserved', label: 'Reserved', className: 'text-right' },
+                { key: 'available', label: 'Available', className: 'text-right' },
+                { key: 'bar', label: 'Utilisation' },
+              ]}
+              header={
+                <div className="flex items-center gap-3">
+                  <span className="flex size-9 items-center justify-center rounded-xl bg-zinc-100 text-zinc-500">
+                    <Package size={16} />
+                  </span>
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-900">Inventory overview</h2>
+                    <p className="text-xs text-zinc-500">Live stock position per product</p>
+                  </div>
+                </div>
+              }
+            >
+              {inventory.map((inv) => {
+                const available = inv.availableQty || 0;
+                const pct = inv.physicalQty > 0 ? Math.round((available / inv.physicalQty) * 100) : 0;
+                return (
+                  <motion.tr
+                    key={inv.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3 }}
+                    className="transition-colors hover:bg-zinc-50/70"
+                  >
+                    <Td>
+                      <p className="font-medium text-zinc-800">{inv.product?.productName}</p>
+                      <p className="text-xs text-zinc-400">{inv.product?.category}</p>
+                    </Td>
+                    <Td className="font-mono text-[13px] text-zinc-500">{inv.product?.productCode}</Td>
+                    <Td className="text-right font-mono text-[13px] text-zinc-700">{inv.physicalQty}</Td>
+                    <Td className="text-right font-mono text-[13px] text-zinc-700">{inv.reservedQty}</Td>
+                    <Td className="text-right">
+                      <Badge tone={availableTone[availability(available)]}>
+                        {available} avail.
+                      </Badge>
+                    </Td>
+                    <Td className="w-40">
+                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
+                        <div
+                          className={`h-full rounded-full ${
+                            availability(available) === 'low'
+                              ? 'bg-rose-400'
+                              : availability(available) === 'medium'
+                              ? 'bg-amber-400'
+                              : 'bg-emerald-400'
+                          }`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </Td>
+                  </motion.tr>
+                );
+              })}
+            </TableWrapper>
+          </div>
+
+          <div className="mt-4">
+            <TableWrapper
+              columns={[
+                { key: 'order', label: 'Order' },
+                { key: 'quotation', label: 'Quotation' },
+                { key: 'customer', label: 'Customer' },
+                { key: 'items', label: 'Items & stock' },
+                { key: 'total', label: 'Total' },
+                { key: 'status', label: 'Status' },
+                { key: 'dispatches', label: 'Dispatches' },
+                { key: 'actions', label: 'Actions' },
+              ]}
+              header={
+                <div className="flex items-center gap-3">
+                  <span className="flex size-9 items-center justify-center rounded-xl bg-zinc-100 text-zinc-500">
+                    <Package size={16} />
+                  </span>
+                  <div>
+                    <h2 className="text-sm font-semibold text-zinc-900">Orders</h2>
+                    <p className="text-xs text-zinc-500">{orders.length} records</p>
+                  </div>
+                </div>
+              }
+            >
+              {orders.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="px-5 py-2">
+                    <EmptyState
+                      icon={Package}
+                      title="No sales orders yet"
+                      message="Accepted quotations flow in here for confirmation and dispatch."
+                    />
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
+              ) : (
+                orders.map((order) => (
+                  <motion.tr
+                    key={order.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.3 }}
+                    className="transition-colors hover:bg-zinc-50/70"
+                  >
+                    <Td className="whitespace-nowrap font-mono text-[13px] font-medium text-zinc-800">
+                      {order.orderNumber}
+                    </Td>
+                    <Td className="whitespace-nowrap font-mono text-[13px] text-zinc-500">
+                      {order.quotation?.quotationNumber}
+                    </Td>
+                    <Td>
+                      <p className="font-medium text-zinc-800">{order.customer?.companyName}</p>
+                    </Td>
+                    <Td>
+                      <div className="space-y-1">
+                        {order.items?.map((item) => {
+                          const inv = getInventoryForProduct(item.productId);
+                          return (
+                            <div key={item.id} className="flex items-center gap-1.5 text-[13px] text-zinc-600">
+                              <span className="size-1 rounded-full bg-zinc-300" />
+                              {item.product?.productName}
+                              <span className="font-mono text-xs text-zinc-400">&times;{item.quantity}</span>
+                              {inv && (
+                                <Badge
+                                  tone={availability(inv.availableQty)}
+                                  className={`px-1.5 py-0 text-[10px] ${
+                                    inv.availableQty >= item.quantity
+                                      ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20'
+                                      : 'bg-rose-50 text-rose-700 ring-rose-600/20'
+                                  }`}
+                                >
+                                  {inv.availableQty} in stock
+                                </Badge>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </Td>
+                    <Td className="whitespace-nowrap font-mono text-[13px] font-semibold text-zinc-900">
+                      {formatCurrency(order.totalAmount)}
+                    </Td>
+                    <Td>
+                      <Badge tone={statusTone.order(order.status)}>{order.status}</Badge>
+                    </Td>
+                    <Td className="whitespace-nowrap">
+                      {order.dispatches?.length > 0 ? (
+                        <div className="space-y-1">
+                          {order.dispatches.map((d) => (
+                            <div key={d.id} className="font-mono text-xs text-zinc-500">
+                              {d.dispatchNumber}
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-zinc-300">-</span>
+                      )}
+                    </Td>
+                    <Td>
+                      <div className="flex items-center gap-1.5">
+                        {user.role === 'ADMIN' && (
+                          <>
+                            {order.status === 'PENDING' && (
+                              <Button
+                                size="sm"
+                                variant="success"
+                                icon={Check}
+                                onClick={() => setConfirmingOrder(order)}
+                              >
+                                Confirm
+                              </Button>
+                            )}
+                            {order.status === 'CONFIRMED' && (
+                              <Button
+                                size="sm"
+                                variant="primary"
+                                icon={Truck}
+                                onClick={() => openDispatchForm(order)}
+                              >
+                                Dispatch
+                              </Button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </Td>
+                  </motion.tr>
+                ))
+              )}
+            </TableWrapper>
+          </div>
+        </>
+      )}
 
-      {/* Dispatch Form Modal */}
-      {showDispatchForm && (
-        <div className="modal-overlay" onClick={() => setShowDispatchForm(null)}>
-          <div className="modal modal-lg" onClick={(e) => e.stopPropagation()}>
-            <h2>🚚 Process Dispatch</h2>
-            <div className="form-row">
-              <div className="form-group">
-                <label>Dispatch Date *</label>
-                <input
-                  type="date"
-                  value={dispatchData.dispatchDate}
-                  onChange={(e) => setDispatchData((prev) => ({ ...prev, dispatchDate: e.target.value }))}
-                  required
-                />
+      <Modal
+        open={!!confirmingOrder}
+        onClose={() => !confirming && setConfirmingOrder(null)}
+        title="Confirm sales order"
+        description={confirmingOrder ? `Reserve inventory for ${confirmingOrder.orderNumber}.` : ''}
+        icon={CheckCircle2}
+        className="max-w-md"
+      >
+        {confirmingOrder && (
+          <div className="space-y-4">
+            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-500" />
+              <p>
+                Confirming will reserve stock against every line item. Reserved quantity cannot be
+                used for any other order.
+              </p>
+            </div>
+            <div className="flex items-center justify-between rounded-xl bg-zinc-50 px-5 py-4">
+              <div>
+                <p className="text-xs text-zinc-500">Total amount</p>
+                <p className="font-mono text-lg font-semibold text-zinc-900">
+                  {formatCurrency(confirmingOrder.totalAmount)}
+                </p>
               </div>
-              <div className="form-group">
-                <label>Vehicle Number</label>
-                <input
-                  value={dispatchData.vehicleNumber}
-                  onChange={(e) => setDispatchData((prev) => ({ ...prev, vehicleNumber: e.target.value }))}
-                  placeholder="e.g. MH-12-AB-1234"
-                />
-              </div>
-              <div className="form-group">
-                <label>Driver Name</label>
-                <input
-                  value={dispatchData.driverName}
-                  onChange={(e) => setDispatchData((prev) => ({ ...prev, driverName: e.target.value }))}
-                  placeholder="Driver name"
-                />
+              <div className="text-right">
+                <p className="text-xs text-zinc-500">Customer</p>
+                <p className="text-sm font-medium text-zinc-800">
+                  {confirmingOrder.customer?.companyName}
+                </p>
               </div>
             </div>
+            <div className="flex justify-end gap-3">
+              <Button variant="secondary" onClick={() => setConfirmingOrder(null)} disabled={confirming}>
+                Cancel
+              </Button>
+              <Button variant="success" icon={Check} onClick={handleConfirm} loading={confirming} loadingText="Reserving...">
+                Confirm order
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
-            <table className="items-table">
+      <Modal
+        open={!!showDispatchForm}
+        onClose={() => setShowDispatchForm(null)}
+        title="Process dispatch"
+        description="Record shipment details and quantities leaving the warehouse."
+        icon={Truck}
+        className="max-w-2xl"
+      >
+        <div className="space-y-5">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <Field label="Dispatch date" required>
+              <input
+                type="date"
+                className="field"
+                value={dispatchData.dispatchDate}
+                onChange={(e) => setDispatchData((prev) => ({ ...prev, dispatchDate: e.target.value }))}
+                required
+              />
+            </Field>
+            <Field label="Vehicle number">
+              <input
+                className="field"
+                value={dispatchData.vehicleNumber}
+                onChange={(e) => setDispatchData((prev) => ({ ...prev, vehicleNumber: e.target.value }))}
+                placeholder="MH-12-AB-1234"
+              />
+            </Field>
+            <Field label="Driver name">
+              <input
+                className="field"
+                value={dispatchData.driverName}
+                onChange={(e) => setDispatchData((prev) => ({ ...prev, driverName: e.target.value }))}
+                placeholder="Driver name"
+              />
+            </Field>
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-zinc-200">
+            <table className="w-full text-left text-sm">
               <thead>
-                <tr>
-                  <th>Product</th>
-                  <th>Order Qty</th>
-                  <th>Dispatch Qty</th>
+                <tr className="bg-zinc-50/60">
+                  {['Product', 'Order qty', 'Dispatch qty'].map((h) => (
+                    <th key={h} className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400">
+                      {h}
+                    </th>
+                  ))}
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-zinc-100">
                 {dispatchData.items.map((item, idx) => (
                   <tr key={idx}>
-                    <td>{item.productName}</td>
-                    <td>{item.maxQty}</td>
-                    <td>
+                    <td className="px-4 py-2.5 text-zinc-700">{item.productName}</td>
+                    <td className="px-4 py-2.5 font-mono text-[13px] text-zinc-500">{item.maxQty}</td>
+                    <td className="w-32 px-2 py-2.5">
                       <input
                         type="number"
                         min="1"
                         max={item.maxQty}
+                        className="field-muted w-24"
                         value={item.quantity}
                         onChange={(e) => updateDispatchItem(idx, 'quantity', e.target.value)}
                         required
@@ -288,18 +487,18 @@ export default function SalesOrdersPage() {
                 ))}
               </tbody>
             </table>
+          </div>
 
-            <div className="form-actions">
-              <button className="btn btn-primary" onClick={() => handleDispatch(showDispatchForm)}>
-                Confirm Dispatch
-              </button>
-              <button className="btn btn-secondary" onClick={() => setShowDispatchForm(null)}>
-                Cancel
-              </button>
-            </div>
+          <div className="flex justify-end gap-3 border-t border-zinc-100 pt-5">
+            <Button variant="secondary" onClick={() => setShowDispatchForm(null)}>
+              Cancel
+            </Button>
+            <Button icon={Download} onClick={() => handleDispatch(showDispatchForm)}>
+              Confirm dispatch
+            </Button>
           </div>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }
