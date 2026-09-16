@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider } from './context/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
@@ -7,17 +8,27 @@ import EnquiriesPage from './pages/EnquiriesPage';
 import QuotationsPage from './pages/QuotationsPage';
 import SalesOrdersPage from './pages/SalesOrdersPage';
 
-export default function App() {
+function AnimatedRoutes() {
+  const location = useLocation();
+
   return (
-    <BrowserRouter>
-      <AuthProvider>
-        <Routes>
+    <AnimatePresence mode="wait">
+      <motion.div
+        key={location.pathname}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -6 }}
+        transition={{ duration: 0.25, ease: 'easeOut' }}
+      >
+        <Routes location={location}>
           <Route path="/login" element={<LoginPage />} />
           <Route
             path="/enquiries"
             element={
               <ProtectedRoute>
-                <Layout><EnquiriesPage /></Layout>
+                <Layout>
+                  <EnquiriesPage />
+                </Layout>
               </ProtectedRoute>
             }
           />
@@ -25,7 +36,9 @@ export default function App() {
             path="/quotations"
             element={
               <ProtectedRoute>
-                <Layout><QuotationsPage /></Layout>
+                <Layout>
+                  <QuotationsPage />
+                </Layout>
               </ProtectedRoute>
             }
           />
@@ -33,13 +46,25 @@ export default function App() {
             path="/sales-orders"
             element={
               <ProtectedRoute>
-                <Layout><SalesOrdersPage /></Layout>
+                <Layout>
+                  <SalesOrdersPage />
+                </Layout>
               </ProtectedRoute>
             }
           />
           <Route path="/" element={<Navigate to="/enquiries" replace />} />
           <Route path="*" element={<Navigate to="/enquiries" replace />} />
         </Routes>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <AnimatedRoutes />
       </AuthProvider>
     </BrowserRouter>
   );

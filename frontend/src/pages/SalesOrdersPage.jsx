@@ -306,7 +306,6 @@ export default function SalesOrdersPage() {
                               <span className="font-mono text-xs text-zinc-400">&times;{item.quantity}</span>
                               {inv && (
                                 <Badge
-                                  tone={availability(inv.availableQty)}
                                   className={`px-1.5 py-0 text-[10px] ${
                                     inv.availableQty >= item.quantity
                                       ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20'
