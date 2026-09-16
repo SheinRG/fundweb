@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('🌱 Seeding database...');
+  console.log('[seed] Seeding database...');
 
   // Clear existing data (in reverse dependency order)
   await prisma.dispatchItem.deleteMany();
@@ -42,7 +42,7 @@ async function main() {
     },
   });
 
-  console.log('✅ Users seeded:', admin.email, salesUser.email);
+  console.log('[ok] Users seeded:', admin.email, salesUser.email);
 
   // --- Customers ---
   const customers = await Promise.all([
@@ -93,7 +93,7 @@ async function main() {
     }),
   ]);
 
-  console.log(`✅ ${customers.length} customers seeded`);
+  console.log(`[ok] ${customers.length} customers seeded`);
 
   // --- Products (6 industrial products with realistic data) ---
   const products = await Promise.all([
@@ -153,7 +153,7 @@ async function main() {
     }),
   ]);
 
-  console.log(`✅ ${products.length} products seeded`);
+  console.log(`[ok] ${products.length} products seeded`);
 
   // --- Inventory (initial stock for each product) ---
   const inventoryData = [
@@ -169,16 +169,16 @@ async function main() {
     inventoryData.map((inv) => prisma.inventory.create({ data: inv }))
   );
 
-  console.log(`✅ ${inventoryData.length} inventory records seeded`);
-  console.log('\n🎉 Seeding complete!');
-  console.log('\n📋 Login Credentials:');
+  console.log(`[ok] ${inventoryData.length} inventory records seeded`);
+  console.log('\n[done] Seeding complete!');
+  console.log('\n[creds] Login Credentials:');
   console.log('  Admin: admin@fundsweb.com / admin123');
   console.log('  Sales: sales@fundsweb.com / sales123');
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Seeding failed:', e);
+    console.error('[error] Seeding failed:', e);
     process.exit(1);
   })
   .finally(async () => {
