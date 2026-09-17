@@ -1,4 +1,4 @@
-# FundsWeb ERP — PERN Full-Stack Technical Case Study
+# FundsWeb ERP — MERN Full-Stack Technical Case Study
 
 A small ERP application for a manufacturing and supply company, covering the complete business workflow:
 
